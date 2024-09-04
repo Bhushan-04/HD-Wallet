@@ -1,113 +1,621 @@
-import Image from "next/image";
+"use client";
+
+import { useEffect, useState } from "react";
+import { FaEye, FaEyeSlash, FaCopy, FaTrash } from "react-icons/fa";
+import nacl from "tweetnacl";
+import { generateMnemonic, mnemonicToSeedSync } from "bip39";
+import { derivePath } from "ed25519-hd-key";
+import bs58 from "bs58";
+import { Connection, Keypair, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import { Toaster, toast } from 'sonner';
+
+interface Wallet {
+  publicKey: string;
+  privateKey: string;
+}
 
 export default function Home() {
+  const [mnemonics, setMnemonics] = useState<string>("");
+  const [mnemonicsInput, setMnemonicsInput] = useState<string>("");
+  const [isCopied, setIsCopied] = useState<boolean>(false);
+  const [walletsData, setWalletsdata] = useState<Wallet[]>([]);
+  const [isOpen, setIsOpen] = useState<boolean>(false);
+  const [isDisabled, setIsDisabled] = useState<boolean>(false);
+  const [visibility, setVisibility] = useState<any[]>([]);
+  const [isClipboardAvailable, setIsClipboardAvailable] = useState(false);
+  const [screenSize, setScreenSize] = useState<any>({
+    width: undefined
+    });
+
+  const [count, setCount] = useState(0);
+
+  useEffect(() => {
+    const storedWalletsdata = localStorage.getItem("wallets");
+    const storedMnemonic = localStorage.getItem("mnemonics");
+    
+
+    if (storedWalletsdata && storedMnemonic) {
+      setMnemonics(JSON.parse(storedMnemonic));
+      setWalletsdata(JSON.parse(storedWalletsdata));
+      setIsDisabled(true);
+    }
+
+    const handleResize = () => {
+      setScreenSize({
+        width: window.innerWidth
+        });
+    };
+
+     // Add event listener for resize
+     window.addEventListener('resize', handleResize);
+
+     // Call handler right away so state gets updated with initial window size
+     handleResize();
+ 
+     // Remove event listener on cleanup
+     return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && navigator?.clipboard) {
+      setIsClipboardAvailable(true);
+      setVisibility(new Array(walletsData.length).fill(false));
+    }
+  }, [walletsData]);
+
+  const handleGenerate = async () => {
+    // console.log(mnemonics);
+    if (mnemonicsInput) {
+      // console.log("already generated !");
+      // let generatedmnemonic = generateMnemonic();
+      // console.log(mnemonic);
+      const seedBuffer = mnemonicToSeedSync(mnemonicsInput);
+
+      //for solana
+      const path = `m/44'/501'/0'/0'`;
+      const { key: derivedSeed } = derivePath(path, seedBuffer.toString("hex"));
+
+      const { secretKey } = nacl.sign.keyPair.fromSeed(derivedSeed);
+      const keypair = Keypair.fromSecretKey(secretKey);
+
+      let publicKeyEncoded: string;
+      let privateKeyEncoded: string;
+
+      privateKeyEncoded = bs58.encode(secretKey);
+      publicKeyEncoded = keypair.publicKey.toBase58();
+
+      if (privateKeyEncoded && publicKeyEncoded) {
+        let updatedWallets: any = [
+          ...walletsData,
+          { publicKey: publicKeyEncoded, privateKey: privateKeyEncoded },
+        ];
+        // console.log(updatedWallets);
+        setWalletsdata(updatedWallets);
+        setMnemonics(mnemonicsInput);
+        localStorage.setItem("wallets", JSON.stringify(updatedWallets));
+        localStorage.setItem("mnemonics", JSON.stringify(mnemonicsInput));
+        toast.success('Keypair Generated Successfully !',{
+          duration: 2000,
+        });
+        setIsDisabled(true);
+      }
+    } else {
+      let generatedmnemonic = generateMnemonic();
+      // console.log(mnemonic);
+      const seedBuffer = mnemonicToSeedSync(generatedmnemonic);
+
+      //for solana
+      const path = `m/44'/501'/0'/0'`;
+      const { key: derivedSeed } = derivePath(path, seedBuffer.toString("hex"));
+
+      const { secretKey } = nacl.sign.keyPair.fromSeed(derivedSeed);
+      const keypair = Keypair.fromSecretKey(secretKey);
+
+      let publicKeyEncoded: string;
+      let privateKeyEncoded: string;
+
+      privateKeyEncoded = bs58.encode(secretKey);
+      publicKeyEncoded = keypair.publicKey.toBase58();
+
+      if (privateKeyEncoded && publicKeyEncoded) {
+        let updatedWallets: any = [
+          ...walletsData,
+          { publicKey: publicKeyEncoded, privateKey: privateKeyEncoded },
+        ];
+        // console.log(updatedWallets);
+        setWalletsdata(updatedWallets);
+        setMnemonics(generatedmnemonic);
+        localStorage.setItem("wallets", JSON.stringify(updatedWallets));
+        localStorage.setItem("mnemonics", JSON.stringify(generatedmnemonic));
+        toast.success('SEED & Keypair Generated Successfully !', {
+          duration: 2000,
+        });
+        setIsDisabled(true);
+      }
+    }
+  };
+
+  const handleAddWallet = () => {
+    if (mnemonics) {
+      const seed = mnemonicToSeedSync(mnemonics);
+      // let a = [];
+      const path = `m/44'/501'/${walletsData.length}'/0'`;
+      const derivedSeed = derivePath(path, seed.toString("hex")).key;
+
+      let secret = nacl.sign.keyPair.fromSeed(derivedSeed).secretKey;
+
+      let publicKey = Keypair.fromSecretKey(secret).publicKey.toBase58();
+
+      const updatedWallets: Wallet[] = [
+        ...walletsData,
+        { publicKey: publicKey, privateKey: bs58.encode(secret) },
+      ];
+      // setWallets(updatedWallets);
+
+      setWalletsdata(updatedWallets);
+
+      localStorage.setItem("wallets", JSON.stringify(updatedWallets));
+      toast.success('Added !', {
+        duration: 1000,
+      });
+      // notifySuccess('Added!')
+      // if (typeof window !== "undefined") {
+      // localStorage.setItem("mnemonic", mnemonics);
+      // setMnemonics(mnemonics);
+      // }
+    }
+    else{
+      toast.error('Please Generate the SEED First', {
+        duration: 1000,
+      });
+    }
+    
+  };
+
+  const toggleVisibility = (index: number) => {
+    const updatedVisibility: any[] = [...visibility];
+    updatedVisibility[index] = !updatedVisibility[index];
+    setVisibility(updatedVisibility);
+  };
+
+  const removeItem = (index: number) => {
+    const updatedItems = walletsData.filter((_, i) => i !== index);
+
+    localStorage.setItem("wallets", JSON.stringify(updatedItems));
+
+    setWalletsdata(updatedItems);
+    toast.error('Deleted !', {
+      duration: 1000,
+    });
+
+    // notifySuccess('Deleted!');
+  };
+
+  const handleCopy = async (textToCopy: string) => {
+    if (isClipboardAvailable) {
+      try {
+        await navigator.clipboard.writeText(textToCopy);
+        setIsCopied(true);
+        setTimeout(() => setIsCopied(false), 1000);
+        toast.success('Copied !', {
+          duration: 1000,
+        });
+        // notifySuccess("Copied");
+      } catch (err) {
+        console.error("Failed to copy text:", err);
+        toast.error('Failed to copy text', {
+          duration: 1000,
+        });
+      }
+    }
+  };
+
+  const handleDeleteAll = () => {
+    // if (typeof window !== "undefined") {
+      // localStorage.removeItem('data');
+      // if(!keypair){
+        // notifyError('Nothing to Delete !')
+      // }
+      // if(keypair){
+        // notifyError('Nothing to Delete !')
+      // }
+      if(walletsData.length == 0){
+        toast.error('Nothing to Delete !', {
+          duration: 1000,
+        });
+      }
+      else{
+        localStorage.removeItem('wallets');
+        localStorage.removeItem('mnemonics');
+        setWalletsdata([]);
+        setMnemonics('');
+        setIsDisabled(false);
+        setMnemonicsInput('');
+        toast.success('Deleted Successfully', {
+          duration: 2000
+        });
+      }
+      // setCount(0);
+
+    // }
+    
+  };
   return (
-    <main className="flex min-h-screen flex-col items-center justify-between p-24">
-      <div className="z-10 w-full max-w-5xl items-center justify-between font-mono text-sm lg:flex">
-        <p className="fixed left-0 top-0 flex w-full justify-center border-b border-gray-300 bg-gradient-to-b from-zinc-200 pb-6 pt-8 backdrop-blur-2xl dark:border-neutral-800 dark:bg-zinc-800/30 dark:from-inherit lg:static lg:w-auto  lg:rounded-xl lg:border lg:bg-gray-200 lg:p-4 lg:dark:bg-zinc-800/30">
-          Get started by editing&nbsp;
-          <code className="font-mono font-bold">app/page.tsx</code>
-        </p>
-        <div className="fixed bottom-0 left-0 flex h-48 w-full items-end justify-center bg-gradient-to-t from-white via-white dark:from-black dark:via-black lg:static lg:size-auto lg:bg-none">
-          <a
-            className="pointer-events-none flex place-items-center gap-2 p-8 lg:pointer-events-auto lg:p-0"
-            href="https://vercel.com?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+    <div className="container md:w-3/4 lg:w-4/5 mx-auto">
+            <Toaster position="top-right"/>
+      <div className="border-b-2 border-gray-700">
+        <div className="flex flex-col items-center p-5">
+          <h1 className="text-3xl text-center p-5 my-3 md:text-4xl lg:text-6xl">Mnemonics Wallet</h1>
+          <input
+            type="text"
+            id="success"
+            // className= "bg-transparent  focus:outline-none focus:ring-0 focus:border-gray-100 border border-gray-500 text-sm rounded-lg mx-auto block lg:w-3/4 p-2.5"
+            className="bg-transparent focus:outline-none border border-gray-500 focus:border-gray-100 text-xs rounded-lg p-2.5 my-1 w-3/4 lg:text-sm" 
+            value={mnemonicsInput ? mnemonicsInput : ""}
+            placeholder={isDisabled
+               ? "Your Seed is already generated, click Add Wallet to add one more keypair" : "Generate to get SEED, else paste here"}
+            onChange={(e) => setMnemonicsInput(e.target.value)}
+            disabled={isDisabled}
+          />
+          <button
+            type="button"
+            className={ isDisabled ? "text-xl border border-gray-500 mt-5 px-5 text-black rounded-sm bg-gray-200" : "text-xl border border-gray-500 mt-5 px-5 text-black rounded-sm bg-gray-200 hover:bg-transparent hover:text-white"}
+            onClick={handleGenerate}
+            disabled={isDisabled}
           >
-            By{" "}
-            <Image
-              src="/vercel.svg"
-              alt="Vercel Logo"
-              className="dark:invert"
-              width={100}
-              height={24}
-              priority
-            />
-          </a>
+            {mnemonics ? "Generated !" : "Generate"}
+          </button>          
         </div>
       </div>
-
-      <div className="relative z-[-1] flex place-items-center before:absolute before:h-[300px] before:w-full before:-translate-x-1/2 before:rounded-full before:bg-gradient-radial before:from-white before:to-transparent before:blur-2xl before:content-[''] after:absolute after:-z-20 after:h-[180px] after:w-full after:translate-x-1/3 after:bg-gradient-conic after:from-sky-200 after:via-blue-200 after:blur-2xl after:content-[''] before:dark:bg-gradient-to-br before:dark:from-transparent before:dark:to-blue-700 before:dark:opacity-10 after:dark:from-sky-900 after:dark:via-[#0141ff] after:dark:opacity-40 sm:before:w-[480px] sm:after:w-[240px] before:lg:h-[360px]">
-        <Image
-          className="relative dark:drop-shadow-[0_0_0.3rem_#ffffff70] dark:invert"
-          src="/next.svg"
-          alt="Next.js Logo"
-          width={180}
-          height={37}
-          priority
-        />
+      <div className="border-b-2 border-gray-700 py-3 m-3">
+  <div>
+    <div className="flex justify-between">
+      <h1>Secret Key</h1>
+      <div className="flex">
+        {(isOpen && mnemonics) && (
+          <button
+            className="text-gray-600 hover:text-white"
+            onClick={() => handleCopy(mnemonics)}
+          >
+            <FaCopy size={20} />
+          </button>
+        )}
+        <button
+          className="flex items-center bg-transparent text-white px-2 py-2 rounded"
+          onClick={
+            mnemonics
+              ? () => setIsOpen(!isOpen)
+              : () =>
+                  toast.error('Please Generate the SEED First', {
+                    duration: 1000,
+                  })
+          }
+        >
+          <svg
+            className={`w-5 h-5 ml-2 transform transition-transform duration-300 ${
+              mnemonics && isOpen ? 'rotate-180' : 'rotate-0'
+            }`}
+            fill="none"
+            stroke={isOpen ? 'white' : 'gray'}
+            viewBox="0 0 24 24"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+              d="M19 9l-7 7-7-7"
+            ></path>
+          </svg>
+        </button>
       </div>
+    </div>
+    <div
+      className={`transition-all duration-500 ease-in-out overflow-hidden ${
+        isOpen ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0'
+      }`}
+      style={{
+        transitionProperty: 'max-height, opacity',
+      }}
+    >
+      {isOpen && mnemonics && (
+        <div className="grid grid-cols-4 gap-4 justify-items-center align-middle py-10">
+          {mnemonics.split(' ').map((item, index) => (
+            <div
+              key={index}
+              className="border-x border-y p-3 border-gray-700 w-full flex justify-center"
+            >
+              <p>{item}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  </div>
+</div>
 
-      <div className="mb-32 grid text-center lg:mb-0 lg:w-full lg:max-w-5xl lg:grid-cols-4 lg:text-left">
-        <a
-          href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className="mb-3 text-2xl font-semibold">
-            Docs{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className="m-0 max-w-[30ch] text-sm opacity-50">
-            Find in-depth information about Next.js features and API.
-          </p>
-        </a>
-
-        <a
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className="mb-3 text-2xl font-semibold">
-            Learn{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className="m-0 max-w-[30ch] text-sm opacity-50">
-            Learn about Next.js in an interactive course with&nbsp;quizzes!
-          </p>
-        </a>
-
-        <a
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className="mb-3 text-2xl font-semibold">
-            Templates{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className="m-0 max-w-[30ch] text-sm opacity-50">
-            Explore starter templates for Next.js.
-          </p>
-        </a>
-
-        <a
-          href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-          className="group rounded-lg border border-transparent px-5 py-4 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:dark:border-neutral-700 hover:dark:bg-neutral-800/30"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <h2 className="mb-3 text-2xl font-semibold">
-            Deploy{" "}
-            <span className="inline-block transition-transform group-hover:translate-x-1 motion-reduce:transform-none">
-              -&gt;
-            </span>
-          </h2>
-          <p className="m-0 max-w-[30ch] text-balance text-sm opacity-50">
-            Instantly deploy your Next.js site to a shareable URL with Vercel.
-          </p>
-        </a>
+      <div className="border-b-2 border-gray-700 py-3 m-3">
+        <div className="flex justify-between p-2 h-9">
+          <div className="">
+            <h1>Keypairs</h1>
+          </div>
+          <div className="flex">
+            <div className="max-w-full mr-0">
+              <button
+                type="button"
+                className="max-w-full bg-gray-700  text-white-900 hover:bottom-2 font-normal rounded-sm text-sm px-5 me-2 py-1 dark:hover:bg-transparent dark:hover:border-y-2"
+                onClick={handleAddWallet}
+              >
+                Add Wallet
+              </button>
+            </div>
+            <div>
+              <button
+                type="button"
+                className="max-w-full bg-red-900  text-white-900 hover:bottom-2 font-normal rounded-sm text-sm px-5 me-2 py-1  dark:hover:bg-transparent dark:hover:border-y-2"
+                onClick={handleDeleteAll}
+              >
+                Delete All
+              </button>
+            </div>
+          </div>
+        </div>
+        <div>
+          {walletsData?.map((item, key) => {
+            return (
+              <div className="bg-transparent border-2  rounded-lg shadowbg-blue-800 dark:border-gray-700 mt-5 p-4">
+                <div className="flex justify-between">
+                  <h5 className="text-md font-bold tracking-tight dark:text-white">
+                    Wallet {key + 1}
+                  </h5>
+                  {/* <div>
+                    Balance: {d(item.publickey)}
+                  </div> */}
+                  <button
+                    onClick={() => removeItem(key)}
+                    className="flex items-center py-2"
+                  >
+                    <FaTrash className=" text-red-800 text-sm hover:text-white" />
+                  </button>
+                </div>
+                <div className="mb-3 text-gray-400">
+                  <h3>Public Key:</h3>
+                  <div className="text-xs text-gray-700 flex justify-between">
+                    <div>
+                      {(screenSize.width <= 640) ? item.publicKey.slice(0,30) + '...' : item.publicKey} 
+                    </div>
+                    <div>
+                      <button
+                        className="text-gray-600 hover:text-white"
+                        onClick={() => handleCopy(item.publicKey)}
+                      >
+                        <FaCopy size={15} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                <div className="mb-3 font-normal text-gray-400">
+                  <h3>Private Key:</h3>
+                  <span className="text-xs text-gray-700 flex justify-between">
+                    <div>
+                      {visibility[key]
+                        ? (screenSize.width <= 640 ) ? item.privateKey.slice(0, 30) + "..." : item.privateKey
+                        : (screenSize.width <= 640 ) ? "*".repeat(item.privateKey.length-50) + "..." : "*".repeat(item.privateKey.length)}
+                    </div>
+                    <div>
+                      <button
+                        className="text-gray-600 hover:text-white px-2"
+                        onClick={() => toggleVisibility(key)}
+                      >
+                        {visibility[key] ? (
+                          <FaEyeSlash className="text-gray-400 hover:text-white" size={15} />
+                        ) : (
+                          <FaEye size={15} />
+                        )}
+                      </button>
+                      <button
+                        className="text-gray-600 hover:text-gray-900"
+                        onClick={() => handleCopy(item.privateKey)}
+                      >
+                        <FaCopy size={15} />
+                      </button>
+                    </div>
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
-    </main>
+    </div>
+
+
+
+
+
+
+
+
+
+
+
+    // <div className=" p-10 box-border">
+    //         <Toaster position="top-right"/>
+    //   <div className="block border-b-2 border-gray-700 p-3 m-3">
+    //     <div>
+    //     <h1 className="text-6xl pb-10 text-center">Mnemonics Wallet</h1>
+    //     <div className="flex justify-center">
+    //       <input
+    //         type="text"
+    //         id="success"
+    //         // className= "bg-transparent  focus:outline-none focus:ring-0 focus:border-gray-100 border border-gray-500 text-sm rounded-lg mx-auto block lg:w-3/4 p-2.5"
+    //         className="bg-transparent focus:outline-none focus:border-gray-100 border border-gray-500 text-sm rounded-lg p-2.5 w-3/4"
+    //         value={mnemonicsInput ? mnemonicsInput : ""}
+    //         placeholder={isDisabled
+    //            ? "Your Seed is already generated , click on Add Wallet to add one more keypair" : "Enter Your Seed if you have one, if NOT then click on Generate to get one !"}
+    //         onChange={(e) => setMnemonicsInput(e.target.value)}
+    //         disabled={isDisabled}
+    //       />
+    //     </div>
+    //     <div className="flex justify-center p-10">
+    //       <button
+    //         type="button"
+    //         className= {isDisabled  ? "w-1/5 text-white border-2 border-white hover:bg-transparent focus:ring-4 focus:outline-none focus:ring-gray-300 font-extrabold rounded-lg text-xl px-5 py-2.5 text-center me-2 mb-2 dark:border-gray-600 dark:text-white dark:hover:text-white dark:hover:bg-transparent dark:focus:ring-gray-800" : "w-1/5 text-white hover:w-2/5 hover:text-white border border-gray-800 hover:bg-transparent focus:ring-4 focus:outline-none focus:ring-gray-300 font-extrabold rounded-lg text-xl px-5 py-2.5 text-center me-2 mb-2 dark:border-gray-600 dark:text-white dark:hover:text-white dark:hover:bg-transparent dark:focus:ring-gray-800"}
+    //         onClick={handleGenerate}
+    //         disabled={isDisabled}
+    //       >
+    //         {mnemonics ? "Generated !" : "Generate"}
+    //       </button>
+    //     </div>
+    //     </div>
+        
+    //   </div>
+    //   <div className="border-b-2 border-gray-700 p-3 m-3">
+    //     <div>
+    //       <div className="flex justify-between">
+    //         <h1>Secret Key</h1>
+    //         <div className="flex">
+    //           {(isOpen && mnemonics) && <button
+    //             className="text-gray-600 hover:text-white"
+    //             onClick={() => handleCopy(mnemonics)}
+    //           >
+    //             <FaCopy size={20} />
+    //           </button>}
+    //           <button
+    //             className="flex items-center bg-transparent text-white px-4 py-2 rounded"
+    //             onClick={(mnemonics) ? () => setIsOpen(!isOpen): (()=>toast.error('Please Generate the SEED First', {
+    //               duration: 1000,
+    //             }))}
+    //           >
+    //             <svg
+    //               className={`w-5 h-5 ml-2 transform transition-transform duration-300 ${
+    //                 mnemonics && isOpen ? "rotate-180" : "rotate-0"
+    //               }`}
+    //               fill="none"
+    //               stroke={isOpen ? "white" : "gray"}
+    //               viewBox="0 0 24 24"
+    //               xmlns="http://www.w3.org/2000/svg"
+    //             >
+    //               <path
+    //                 strokeLinecap="round"
+    //                 strokeLinejoin="round"
+    //                 strokeWidth="2"
+    //                 d="M19 9l-7 7-7-7"
+    //               ></path>
+    //             </svg>
+    //           </button>
+    //         </div>
+    //       </div>
+    //       <div
+    //         className={`transition-all duration-500 ease-in-out overflow-hidden ${
+    //           isOpen ? "max-h-96 opacity-100" : "max-h-0 opacity-0"
+    //         }`}
+    //       >
+    //         {isOpen && mnemonics && (
+    //           <div className="grid grid-cols-4 gap-4 justify-items-center align-middle py-10 ">
+    //             {mnemonics?.split(" ").map((item) => {
+    //               return (
+    //                 <div className="border-x border-y p-3 border-gray-700  w-full flex justify-center ">
+    //                   <p>{item}</p>
+    //                 </div>
+    //               );
+    //             })}
+    //           </div>
+    //         )}
+    //       </div>
+    //     </div>
+    //   </div>
+    //   <div className="border-b-2 border-gray-700 p-3 m-3">
+    //     <div className="flex justify-between h-9">
+    //       <h1>KeyPair</h1>
+    //       <div className="flex mr-8">
+    //         <div className="max-w-full mr-3">
+    //           <button
+    //             type="button"
+    //             className="max-w-full bg-gray-700  text-white-900 hover:bottom-2 font-normal rounded-sm text-sm px-5 me-2 py-1 dark:hover:bg-transparent dark:hover:border-y-2"
+    //             onClick={handleAddWallet}
+    //           >
+    //             Add Wallet
+    //           </button>
+    //         </div>
+    //         <div>
+    //           <button
+    //             type="button"
+    //             className="max-w-full bg-red-900  text-white-900 hover:bottom-2 font-normal rounded-sm text-sm px-5 me-2 py-1  dark:hover:bg-transparent dark:hover:border-y-2"
+    //             onClick={handleDeleteAll}
+    //           >
+    //             Delete All
+    //           </button>
+    //         </div>
+    //       </div>
+    //     </div>
+    //     <div>
+    //       {walletsData?.map((item, key) => {
+    //         return (
+    //           <div className="w-9/12 /p-6 bg-transparent border-2  rounded-lg shadowbg-blue-800 dark:border-gray-700 mt-5 p-4">
+    //             <div className="flex justify-between">
+    //               <h5 className="mb-2 text-xl font-bold tracking-tight text-gray-900 dark:text-white">
+    //                 Wallet {key + 1}
+    //               </h5>
+    //               {/* <div>
+    //                 Balance: {d(item.publickey)}
+    //               </div> */}
+    //               <button
+    //                 onClick={() => removeItem(key)}
+    //                 className="flex items-center px-1 py-2"
+    //               >
+    //                 <FaTrash className=" text-white text-md hover:text-red-800 hover:text-xl" />
+    //               </button>
+    //             </div>
+    //             <div className="mb-3 font-normal text-gray-400">
+    //               <h3>Public Key:</h3>
+    //               <span className="text-xs text-gray-700 flex justify-between">
+    //                 <div>
+    //                   {item.publicKey}
+    //                 </div>
+    //                 <div>
+    //                   <button
+    //                     className="text-gray-600 hover:text-gray-900"
+    //                     onClick={() => handleCopy(item.publicKey)}
+    //                   >
+    //                     <FaCopy size={20} />
+    //                   </button>
+    //                 </div>
+    //               </span>
+    //             </div>
+    //             <div className="mb-3 font-normal text-gray-400">
+    //               <h3>Private Key:</h3>
+    //               <span className="text-xs text-gray-700 flex justify-between">
+    //                 <div>
+    //                   {visibility[key]
+    //                     ? item.privateKey
+    //                     : "*".repeat(item.privateKey.length)}{" "}
+    //                 </div>
+    //                 <div>
+    //                   <button
+    //                     className="text-gray-600 hover:text-gray-700 px-2"
+    //                     onClick={() => toggleVisibility(key)}
+    //                   >
+    //                     {visibility[key] ? (
+    //                       <FaEyeSlash className="text-gray-400" size={20} />
+    //                     ) : (
+    //                       <FaEye size={20} />
+    //                     )}
+    //                   </button>
+    //                   <button
+    //                     className="text-gray-600 hover:text-gray-900"
+    //                     onClick={() => handleCopy(item.privateKey)}
+    //                   >
+    //                     <FaCopy size={20} />
+    //                   </button>
+    //                 </div>
+    //               </span>
+    //             </div>
+    //           </div>
+    //         );
+    //       })}
+    //     </div>
+    //   </div>
+    // </div>
   );
 }
